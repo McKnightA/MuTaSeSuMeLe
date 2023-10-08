@@ -28,51 +28,6 @@ class SimpleConvEncode(nn.Module):
         return out
 
 
-class ResNetLikeEncode(nn.Module):
-    """
-
-    """
-
-    def __init__(self, embed_dim, *args, **kwargs):
-        """
-
-        :param embed_dim:
-        """
-        super().__init__(*args, **kwargs)
-        # todo:
-        #  read ResNet paper cause this isn't right
-        #  figure out all the needed layers
-
-        self.block1 = nn.Sequential(nn.Conv2d(3, 32, (3, 3)),
-                                    nn.SiLU(),
-                                    nn.Conv2d(32, 64, (3, 3), stride=(2, 2)),
-                                    nn.SiLU(),
-                                    nn.BatchNorm2d(64))
-        self.block2 = nn.Sequential(nn.Conv2d(64, 128, (3, 3)),
-                                    nn.SiLU(),
-                                    nn.Conv2d(128, 128, (3, 3), stride=(2, 2)),
-                                    nn.SiLU(),
-                                    nn.BatchNorm2d(128))
-        self.block3 = nn.Sequential(nn.Conv2d(128, 256, (3, 3)),
-                                    nn.SiLU(),
-                                    nn.Conv2d(256, 256, (3, 3)),
-                                    nn.SiLU(),
-                                    nn.Conv2d(256, embed_dim, (3, 3), stride=(2, 2)),
-                                    nn.SiLU(),
-                                    nn.BatchNorm2d(embed_dim))
-
-    def forward(self, input_data):
-        """
-
-        :param input_data:
-        :return:
-        """
-        out = self.block1(input_data)
-        out = self.block2(out)
-        out = self.block3(out)
-        return out
-
-
 class SimpleTaskHead(nn.Module):
     """
     should have more than one layer for a tail, at least needs nonlinearity,
@@ -136,4 +91,47 @@ class SimpleConvDecode(nn.Module):
 
         return output
 
+
+class Cifar10Encoder(nn.Module):
+    """
+
+    """
+    def __init__(self):
+        """
+
+        """
+        # conv1
+        # batchnorm
+        # conv2
+        # batchnorm
+        # pool1
+        # dropout
+        # conv3
+        # batchnorm
+        # conv4
+        # batchnorm
+        # pool2
+        # dropout
+        # conv5
+        # batchnorm
+        # conv6
+        # batchnorm
+        # pool3
+        # dropout
+
+
+class Cifar10Classifier(nn.Module):
+    """
+
+    """
+    def __init__(self):
+        """
+
+        """
+
+        # dense
+        # batchnorm
+        # dense
+        # batchnorm
+        # dense
 

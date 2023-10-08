@@ -3,20 +3,6 @@ import BackBoneModel as bbm
 import torch
 
 
-# todo recreate MAML:
-#  require distribution of tasks
-#  require inner and outer learning rates
-#  randomly initialize θ
-#  while not done do
-#   Sample batch of tasks Ti ∼ p(T )
-#   for all Ti do
-#    Evaluate ∇θLTi (fθ) with respect to K examples
-#    Compute adapted parameters with gradient descent: θi = θ − α∇θLTi(fθ)
-#   end for
-#   Update θ ← θ − β∇θPTi∼p(T ) LTi(fθi)
-#  end while
-
-
 class MAML:
 
     def __init__(self, training_tasks, test_task, backbone, inner_lr, meta_optim):
@@ -59,7 +45,7 @@ class MAML:
 
         for step in range(grad_steps):
             pretreated = task.pretreat(data)
-            embedding = self.backbone.forward(pretreated)  # todo beware the common backbone and updating the weights
+            embedding = self.backbone.forward(pretreated)
             loss = task.generate_loss(embedding)
 
             # zero gradients
@@ -130,15 +116,6 @@ class MAML:
         averaged_meta_loss.backward(retain_graph=True)
 
         self.meta_optim.step()
-
-        # where do I start and where do I end?
-
-        # I start with some number of training tasks that all have different heads and maybe harmonization layers
-        # I also start with a meta task that has its own head and maybe harmonization layers
-        # all tasks share a common backbone
-
-        # each training task ends with its layers updated by the inner optim (SGD) some number of times for each call
-        # the meta task has its
 
         return averaged_meta_loss
 

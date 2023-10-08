@@ -57,6 +57,7 @@ def cropping(input_data):
 
     cropped = trfm.crop(torch.as_tensor(input_data), top, left, height, width)
     cropped_resized = trfm.resize(torch.as_tensor(cropped), [input_data.shape[2], input_data.shape[3]], antialias=True)
+    # todo (potentially) replace with torchvision.transforms.RandomResizedCrop()
     return cropped_resized, (top, left, height, width)
 
 
@@ -77,6 +78,9 @@ def color_distortions(input_data):
     :param input_data: expecting image data in the shape (batch, channels, height, width)
     :return:
     """
+    # todo (potentially) replace with torchvision.transforms.ColorJitter()
+    #  but color distortion is used in SimCLR so that images can't be identified based on color histogram alone
+    #  and equalize "Equalize the histogram of an image" so it should achieve the same effect
     return trfm.equalize(torch.as_tensor(input_data, dtype=torch.uint8)), (0, 0)
 
 

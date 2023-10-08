@@ -1,14 +1,10 @@
-import random
-import math
-import numpy as np
 import torch
 import torch.nn as nn
 import DataAugments as da
-from skimage.color import rgb2lab, lab2rgb
+from skimage.color import rgb2lab
 import BackBoneModel as bbm
 
 
-# right now im thinking rotation, colorization, contrastive, and mae
 class Rotation:
     """
     inspired by https://arxiv.org/abs/1803.07728
@@ -18,6 +14,8 @@ class Rotation:
         """
 
         """
+        self.name = 'Rotation'
+
         self.task_head = task_head(embed_features, 4)
         self.loss = nn.CrossEntropyLoss()
         self.labels = None
@@ -59,74 +57,8 @@ class Colorization:
         """
 
         """
-        self.desired_precision = 128
+        self.name = 'Colorization'
 
-        self.harmonization = nn.Conv2d(1, 3, (1, 1))
-        self.task_head = task_head(embed_features, self.desired_precision * 2)
-
-        self.loss = nn.CrossEntropyLoss()
-        self.labels = None
-
-    def pretreat(self, input_data):
-        """
-
-        :param input_data: a batch of raw images
-        :return:
-        """
-        # convert to lab and maintain (b, c, h, w) shape
-        lab_data = torch.as_tensor(rgb2lab(input_data.transpose(0, 2, 3, 1)).transpose(0, 3, 1, 2), dtype=torch.float)
-
-        l_data = lab_data[:, 0, :, :].unsqueeze(1)
-        self.labels = lab_data[:, 1:, :, :]
-
-        return self.harmonization(l_data)
-
-    def generate_loss(self, embedded_data, clear_labels=True):
-        """
-
-        :param embedded_data:
-        :param clear_labels:
-        :return:
-        """
-
-        output_shape = list(self.labels.shape)
-        output_shape[1] = self.desired_precision * 2
-
-        # turning ab channel values into indices for label values to be used in cross entropy
-        self.labels = nn.functional.sigmoid(self.labels / 500)  # /500 to avoid precision limits where sigmoid returns 1
-        self.labels = (self.labels * self.desired_precision) // 1
-
-        # up-scaling the embedded data into ab value predictions for each pixel
-        output = self.task_head.forward(embedded_data, output_shape)
-
-        # generate for a and b values
-        loss_a = self.loss(output[:, :self.desired_precision], self.labels[:, 0].long())
-        loss_b = self.loss(output[:, self.desired_precision:], self.labels[:, 1].long())
-
-        loss = (loss_a + loss_b) / 2
-
-        if clear_labels:
-            self.labels = None
-        """
-        for the label(2, H, W) apply sigmoid, then multiply by desired_precision and // 1 to get index
-        instead of bringing the latent space to 313xHxW bring it to (desired_precision * 2)xHxW then 
-        check softmax loss between prediction[:desired_precision], label[0] 
-        and prediction[desired_prediction:], label[1]
-        then average those two softmax losses
-        I think this will work, but I accidentally turned it into a multi task problem
-        """
-        return loss
-
-
-class Colorization3:
-    """
-    inspired by https://arxiv.org/abs/1603.08511
-    """
-
-    def __init__(self, embed_features, task_head):
-        """
-
-        """
         self.desired_precision = 128
 
         self.harmonization = nn.Conv2d(1, 3, (1, 1))
@@ -143,7 +75,7 @@ class Colorization3:
         """
         # convert to lab and maintain (b, c, h, w) shape
         input_data = input_data / 255  # skimage expects float values to be between -1 and 1 or 0 and 1 I opt for [0, 1]
-        lab_data = rgb2lab(input_data.transpose(0, 2, 3, 1)) / 100  # lab values are between -something and 100
+        lab_data = rgb2lab(input_data.transpose(0, 2, 3, 1)) / 110  # source paper uses this 110 normalization value
         lab_data = torch.tensor(lab_data.transpose(0, 3, 1, 2), dtype=torch.float)
         l_data = lab_data[:, 0, :, :].unsqueeze(1)
         self.labels = lab_data[:, 1:, :, :]
@@ -191,85 +123,10 @@ class Contrastive:
 
         :param embed_features:
         """
+        self.name = "Contrastive"
 
-        self.augments = [da.rotate, da.cropping, da.horizontal_flip, da.gauss_blur, da.color_distortions]
-
-        self.task_head = task_head(embed_features, 256)
-
-        # self.loss = None  # obvi not true
-        # self.labels = None
-
-    def pretreat(self, input_data):
-        """
-
-        :param input_data:
-        :return:
-        """
-
-        # todo: heed the source paper "In this work, we
-        #  sequentially apply three simple augmentations: random
-        #  cropping followed by resize back to the original size, random color distortions, and random Gaussian blur.
-        #  As shown in Section 3, the combination of random crop and
-        #  color distortion is crucial to achieve a good performance"
-        #  gauss shows bad results in their augmentation heatmap,
-        #  but cutout shows good performance so maybe use the masking augmentation instead
-        #  ideal augment order hflip, crop, color_drop,
-
-        same_augments = True
-        while same_augments:
-            augment1 = random.sample(self.augments, 2)
-            augment2 = random.sample(self.augments, 2)
-
-            if set(augment1) != set(augment2):
-                same_augments = False
-
-        aug_data_1 = input_data.copy()
-        for augment in augment1:
-            aug_data_1, scrap_info = augment(aug_data_1)
-
-        aug_data_2 = input_data.copy()
-        for augment in augment2:
-            aug_data_2, scrap_info = augment(aug_data_2)
-
-        aug_data = np.concatenate((aug_data_1, aug_data_2), axis=0)
-
-        return torch.as_tensor(aug_data, dtype=torch.float)
-
-    def generate_loss(self, embedded_data, clear_labels=True):
-        """
-
-        :param embedded_data:
-        :param clear_labels:
-        :return:
-        """
-        temperature = .5
-
-        output = self.task_head(embedded_data)
-
-        aug1 = nn.functional.normalize(output[:output.shape[0] // 2])
-        aug2 = nn.functional.normalize(output[output.shape[0] // 2:])
-
-        loss_align = torch.mean((aug1 - aug2) ** 2) / 2.0
-
-        normed_output = torch.concatenate((aug1, aug2), dim=0)
-        scores = torch.matmul(normed_output, normed_output.T)
-        bias = math.log(embedded_data.shape[1])
-
-        logsumexp = torch.logsumexp(scores / temperature, dim=1)
-        loss_dist = torch.mean(logsumexp - bias)
-        return loss_align + loss_dist
-
-
-class Contrastive3:
-    """
-    inspired by https://arxiv.org/abs/2002.05709
-    """
-
-    def __init__(self, embed_features, task_head):
-        """
-
-        :param embed_features:
-        """
+        # "As shown in Section 3, the combination of random crop and
+        # color distortion is crucial to achieve a good performance"
 
         self.augments = [da.horizontal_flip, da.cropping, da.color_distortions, da.gauss_blur]  # maybe masking cutting
 
@@ -280,94 +137,13 @@ class Contrastive3:
         """
 
         :param input_data:
-        :return:
-        """
-
-        # todo: heed the source paper "In this work, we
-        #  sequentially apply three simple augmentations: random
-        #  cropping followed by resize back to the original size, random color distortions, and random Gaussian blur.
-        #  As shown in Section 3, the combination of random crop and
-        #  color distortion is crucial to achieve a good performance"
-        #  gauss shows bad results in their augmentation heatmap,
-        #  but cutout shows good performance so maybe use the masking augmentation instead
-        #  potentially ideal augment order hflip, crop, color_drop, blur, mask
-
-        aug_data_1 = input_data.copy()
-        for augment in self.augments:
-            aug_data_1, scrap_info = augment(aug_data_1)
-
-        aug_data_2 = input_data.copy()
-        for augment in self.augments:
-            aug_data_2, scrap_info = augment(aug_data_2)
-
-        aug_data = np.concatenate((aug_data_1, aug_data_2), axis=0)
-
-        return torch.as_tensor(aug_data, dtype=torch.float)
-
-    def generate_loss(self, embedded_data, clear_labels=True):
-        """
-
-        :param embedded_data:
-        :param clear_labels:
         :return:
         """
 
         # todo:
-        #  precompute all the similarity scores
-
-        def similarity(u, v):
-            return torch.matmul(u.T, v) / (torch.linalg.vector_norm(u) * torch.linalg.vector_norm(v))
-
-        def loss_ab(a, b):
-            return -torch.log(torch.exp(similarity(output[a], output[b]) / self.temperature)
-                              / torch.sum(torch.as_tensor([torch.exp(similarity(output[a], output[c])
-                                                                     / self.temperature)
-                                                           for c in range(output.shape[0]) if c != a])))
-
-        output = self.task_head(embedded_data)
-
-        aug1 = nn.functional.normalize(output[:output.shape[0] // 2])
-        aug2 = nn.functional.normalize(output[output.shape[0] // 2:])
-        output = torch.concatenate((aug1, aug2), dim=0)
-
-        loss = 0
-        for i in range(output.shape[0] // 2):
-            loss += (loss_ab(i, i + output.shape[0] // 2) + loss_ab(i + output.shape[0] // 2, i))
-
-        return loss / output.shape[0]
-
-
-class Contrastive4:
-    """
-    inspired by https://arxiv.org/abs/2002.05709
-    """
-
-    def __init__(self, embed_features, task_head):
-        """
-
-        :param embed_features:
-        """
-
-        self.augments = [da.horizontal_flip, da.cropping, da.color_distortions, da.gauss_blur]  # maybe masking cutting
-
-        self.task_head = task_head(embed_features, 256)
-        self.temperature = 0.1
-
-    def pretreat(self, input_data):
-        """
-
-        :param input_data:
-        :return:
-        """
-
-        # todo: heed the source paper "In this work, we
-        #  sequentially apply three simple augmentations: random
-        #  cropping followed by resize back to the original size, random color distortions, and random Gaussian blur.
-        #  As shown in Section 3, the combination of random crop and
-        #  color distortion is crucial to achieve a good performance"
         #  gauss shows bad results in their augmentation heatmap,
-        #  but cutout shows good performance so maybe use the masking augmentation instead
-        #  potentially ideal augment order hflip, crop, color_drop, blur, mask
+        #  but cutout shows good performance so maybe use the masking augmentation
+        #  potentially ideal augment order hflip, crop, color_distort, blur, mask
 
         # todo: test performance when input_data / 255
 
@@ -437,6 +213,7 @@ class MaskedAutoEncoding:
         """
 
         """
+        self.name = "Masked Auto Encoding"
 
         self.harmonization = nn.Conv2d(4, 3, (1, 1))
         self.task_head = task_head(embed_features, 3)
@@ -500,6 +277,8 @@ class Cifar10Classification:
         :param embed_dim:
         :param task_head:
         """
+        self.name = "Cifar10 Classification"
+
         self.task_head = task_head(embed_dim, 10)
         self.loss = nn.CrossEntropyLoss()
 
@@ -520,6 +299,7 @@ class Cifar10Classification:
         return loss
 
 
+# todo (once ready for full scale testing) flesh out multi-task Task
 class AllFourSSL:
     """
 
@@ -532,8 +312,8 @@ class AllFourSSL:
         :param task_head:
         """
         self.tasks = [Rotation(embed_features, bbm.SimpleTaskHead),  # defining model objects
-                      Colorization3(embed_features, bbm.SimpleConvDecode),
-                      Contrastive4(embed_features, bbm.SimpleTaskHead),
+                      Colorization(embed_features, bbm.SimpleConvDecode),
+                      Contrastive(embed_features, bbm.SimpleTaskHead),
                       MaskedAutoEncoding(embed_features, bbm.SimpleConvDecode)]
 
         self.params = []

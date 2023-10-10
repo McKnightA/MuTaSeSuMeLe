@@ -60,11 +60,11 @@ def test_maml(training_set, finetune_set, eval_set, common_backbone, meta_optimi
     fine_losses = []
     fine_eval_losses = []
 
-    for j in range(finetune_loops):  # fine-tuning loop
-        print("fine tuning epoch: ", j)
+    for i in range(finetune_loops):  # fine-tuning loop
+        print("fine tuning epoch: ", i + 1)
 
         for batch in finetune_set.iter(batch_size):
-            # print("loop: ", i)
+
             data_batch = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
                 (0, 3, 1, 2))
             labels = torch.as_tensor(batch['label'], dtype=torch.long)
@@ -263,29 +263,31 @@ if __name__ == "__main__":
     dataset = load_dataset("cifar10", split="train", streaming=True)
     testset = load_dataset("cifar10", split='test', streaming=True)
 
-    latent_embedding_size = 128  # hyper parameters
+    embedding_size = 128  # hyper parameters
     batch_size = 32
     pre_epochs = 5
     inner_loops = 5
     fine_epochs = 2
+    device = "cpu"
 
-    backbone = bbm.SimpleConvEncode(latent_embedding_size)
+    backbone = bbm.SimpleConvEncode(embedding_size, device)
 
-    tasks = [Tasks.Rotation(latent_embedding_size, bbm.SimpleTaskHead),
-             Tasks.Colorization(latent_embedding_size, bbm.SimpleConvDecode),
-             Tasks.Contrastive(latent_embedding_size, bbm.SimpleTaskHead),
-             Tasks.MaskedAutoEncoding(latent_embedding_size, bbm.SimpleConvDecode)]
+    tasks = [Tasks.Rotation(embedding_size, bbm.SimpleTaskHead, device),
+             Tasks.Colorization(embedding_size, bbm.SimpleConvDecode, device),
+             Tasks.Contrastive(embedding_size, bbm.SimpleTaskHead, device),
+             Tasks.MaskedAutoEncoding(embedding_size, bbm.SimpleConvDecode, device),
+             Tasks.Cifar10Classification(embedding_size, bbm.SimpleTaskHead, device)]
 
-    eval_task = Tasks.Cifar10Classification(latent_embedding_size, bbm.SimpleTaskHead)
+    eval_task = Tasks.Cifar10Classification(embedding_size, bbm.SimpleTaskHead, device)
 
-    meta_task = Tasks.Cifar10Classification(latent_embedding_size, bbm.SimpleTaskHead)
+    meta_task = Tasks.Cifar10Classification(embedding_size, bbm.SimpleTaskHead, device)
 
     meta_optim = mo.MAML([tasks[0]], meta_task, backbone, 0.001, torch.optim.Adam)
 
-    # test_task(dataset, testset, backbone, tasks[3], pre_epochs, batch_size)
+    test_task(dataset, testset, backbone, tasks[0], pre_epochs, batch_size)
 
     # test_finetune(dataset, dataset, testset, backbone, tasks[0], eval_task, pre_epochs, fine_epochs, batch_size)
 
-    test_maml(dataset, dataset, testset,
-              backbone, meta_optim, eval_task,
-              pre_epochs, inner_loops, fine_epochs, batch_size)
+    # test_maml(dataset, dataset, testset,
+    #           backbone, meta_optim, eval_task,
+    #           pre_epochs, inner_loops, fine_epochs, batch_size)

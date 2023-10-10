@@ -6,13 +6,13 @@ class SimpleConvEncode(nn.Module):
     """
 
     """
-    def __init__(self, embed_dim, *args, **kwargs):
+    def __init__(self, embed_dim, device="cpu", *args, **kwargs):
         """
 
         """
         super().__init__(*args, **kwargs)
-        self.l1 = nn.Conv2d(3, 16, (3, 3))
-        self.l2 = nn.Conv2d(16, embed_dim, (3, 3))
+        self.l1 = nn.Conv2d(3, 16, (3, 3), device=device)
+        self.l2 = nn.Conv2d(16, embed_dim, (3, 3), device=device)
 
     def forward(self, input_data):
         """
@@ -33,16 +33,16 @@ class SimpleTaskHead(nn.Module):
     should have more than one layer for a tail, at least needs nonlinearity,
     some evidence says increasing tail length allows backbone output to be more general
     """
-    def __init__(self, embed_dim, output_dim, *args, **kwargs):
+    def __init__(self, embed_dim, output_dim, device="cpu", *args, **kwargs):
         """
 
         :param embed_dim:
         :param output_dim:
         """
         super().__init__(*args, **kwargs)
-        self.l1 = nn.Linear(embed_dim, 1024)
-        self.l2 = nn.Linear(1024, 1024)
-        self.l3 = nn.Linear(1024, output_dim)
+        self.l1 = nn.Linear(embed_dim, 1024, device=device)
+        self.l2 = nn.Linear(1024, 1024, device=device)
+        self.l3 = nn.Linear(1024, output_dim, device=device)
 
     def forward(self, embed_data):
         """
@@ -63,7 +63,7 @@ class SimpleConvDecode(nn.Module):
     """
 
     """
-    def __init__(self, embed_dim, output_channels, *args, **kwargs):
+    def __init__(self, embed_dim, output_channels, device='cpu', *args, **kwargs):
         """
 
         :param embed_dim:
@@ -71,9 +71,9 @@ class SimpleConvDecode(nn.Module):
         """
         super().__init__(*args, **kwargs)
 
-        self.up1 = nn.Linear(embed_dim, 1024)
-        self.up2 = nn.Conv2d(1, 3, (3, 3), padding=0)
-        self.up3 = nn.ConvTranspose2d(3, output_channels, (3, 3))
+        self.up1 = nn.Linear(embed_dim, 1024, device=device)
+        self.up2 = nn.Conv2d(1, 3, (3, 3), padding=0, device=device)
+        self.up3 = nn.ConvTranspose2d(3, output_channels, (3, 3), device=device)
 
     def forward(self, embed_data, output_shape):
         """
@@ -92,9 +92,10 @@ class SimpleConvDecode(nn.Module):
         return output
 
 
+# todo flesh out
 class Cifar10Encoder(nn.Module):
     """
-
+    from https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8745428
     """
     def __init__(self):
         """
@@ -118,11 +119,13 @@ class Cifar10Encoder(nn.Module):
         # batchnorm
         # pool3
         # dropout
+        # flatten
 
 
+# todo flesh out
 class Cifar10Classifier(nn.Module):
     """
-
+    from https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8745428
     """
     def __init__(self):
         """
@@ -131,6 +134,7 @@ class Cifar10Classifier(nn.Module):
 
         # dense
         # batchnorm
+        # dropout
         # dense
         # batchnorm
         # dense

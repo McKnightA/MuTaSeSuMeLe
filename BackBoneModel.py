@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 
 
+# TODO:
+#  (eventually) create ResNet based models
+#  (eventually) create ViT based models
+#  (eventually) create MoE based models
+
 class SimpleConvEncode(nn.Module):
     """
     small and fast with no concern for performance
@@ -31,7 +36,7 @@ class SimpleConvEncode(nn.Module):
 class SimpleTaskHead(nn.Module):
     """
     should have more than one layer for a tail, at least needs nonlinearity,
-    some evidence says increasing tail length allows backbone output to be more general
+    some evidence says increasing tail length allows backbone output to be more general (lost my source though:/)
     """
     def __init__(self, embed_dim, output_dim, device="cpu", *args, **kwargs):
         """

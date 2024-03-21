@@ -1,6 +1,8 @@
-import Tasks
-import BackBoneModel as bbm
 import torch
+
+
+# TODO:
+#  (next) breaks for rotation and contrastive tasks. figure out why
 
 
 class MAML:
@@ -20,12 +22,13 @@ class MAML:
         self.inner_lr = inner_lr
 
         params = list(self.backbone.parameters())  # this is a list of Parameter objects
-        try:  # some tasks require data modification that requires "harmonization" with the original data format
-            pass
+        try:
             params += list(test_task.harmonization.parameters()) + list(test_task.task_head.parameters())
         except AttributeError:
-            pass
-            params += list(test_task.task_head.parameters())
+            try:
+                params += list(test_task.task_head.parameters())
+            except AttributeError:
+                params += list(test_task.params)
         self.meta_optim = meta_optim(params)
 
     def inner_loop(self, task, data, grad_steps):
@@ -37,11 +40,14 @@ class MAML:
 
         adapted_parameters = [list(self.backbone.parameters())]  # this is a list of Generators of Parameter objects
         try:  # some tasks require data modification that requires "harmonization" with the original data format
-            pass
+            # pass
             adapted_parameters += [list(task.harmonization.parameters()), list(task.task_head.parameters())]
         except AttributeError:
-            pass
-            adapted_parameters += [list(task.task_head.parameters())]
+            # pass
+            try:
+                adapted_parameters += list(task.task_head.parameters())
+            except AttributeError:
+                adapted_parameters += list(task.params)
 
         for step in range(grad_steps):
             pretreated = task.pretreat(data)

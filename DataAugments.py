@@ -1,7 +1,8 @@
 import random
 import numpy as np
 import torch
-import torchvision.transforms.functional as trfm
+import torchvision.transforms as trfm
+import torchvision.transforms.functional as trfm_func
 
 
 # data augmentations should be functions that receive raw data
@@ -38,7 +39,7 @@ def horizontal_flip(input_data):
 
     flipped = np.zeros(input_data.shape[0])
     for index in indices[:int(input_data.shape[0] / 2)]:
-        input_data[index] = trfm.hflip(torch.as_tensor(input_data[index]))
+        input_data[index] = trfm_func.hflip(torch.as_tensor(input_data[index]))
         flipped[index] = 1
 
     return input_data, flipped
@@ -55,8 +56,8 @@ def cropping(input_data):
     height = np.random.randint(input_data.shape[2] // 2, input_data.shape[2] - top)
     width = np.random.randint(input_data.shape[3] // 2, input_data.shape[3] - left)
 
-    cropped = trfm.crop(torch.as_tensor(input_data), top, left, height, width)
-    cropped_resized = trfm.resize(torch.as_tensor(cropped), [input_data.shape[2], input_data.shape[3]], antialias=True)
+    cropped = trfm_func.crop(torch.as_tensor(input_data), top, left, height, width)
+    cropped_resized = trfm_func.resize(torch.as_tensor(cropped), [input_data.shape[2], input_data.shape[3]], antialias=True)
     # todo (potentially) replace with torchvision.transforms.RandomResizedCrop()
     return cropped_resized, (top, left, height, width)
 
@@ -69,19 +70,18 @@ def gauss_blur(input_data):
     """
     gau_h = random.randrange(3, 10, 2)
     gau_w = random.randrange(3, 10, 2)
-    return trfm.gaussian_blur(torch.as_tensor(input_data), [gau_h, gau_w]), (gau_h, gau_w)
+    return trfm_func.gaussian_blur(torch.as_tensor(input_data), [gau_h, gau_w]), (gau_h, gau_w)
 
 
 def color_distortions(input_data):
     """
     applies random color distortions to the images in the batch
     :param input_data: expecting image data in the shape (batch, channels, height, width)
-    :return:
+    :return: the transformed image and zeros because I don't know what values they're transformed by
     """
-    # todo (potentially) replace with torchvision.transforms.ColorJitter()
-    #  but color distortion is used in SimCLR so that images can't be identified based on color histogram alone
-    #  and equalize "Equalize the histogram of an image" so it should achieve the same effect
-    return trfm.equalize(torch.as_tensor(input_data, dtype=torch.uint8)), (0, 0)
+
+    transform = trfm.ColorJitter()
+    return transform.forward(torch.as_tensor(input_data)), (0, 0, 0, 0)
 
 
 def masking(input_data):

@@ -44,8 +44,12 @@ Meta-learning, also known as learning to learn, is motivated by the idea of enab
 
 Overall, meta-learning aims to enable models to learn how to learn efficiently from limited data, adapt quickly to new tasks or environments, and generalize across different domains. It holds promise for addressing the challenges of few-shot learning, transfer learning, and building more robust and autonomous learning systems.
 
+Hypothosis:
+If a model is trained with MAML and multiple self supervised tasks are used as the inner loop tasks, and the desired task is used as the outerloop, then the model will achieve equal or better results in fewer training steps than a model that is pretrained on a single supervised task and fine tuned or linearly probed on the desired task.
 
-reading material:
+For the sake of compairson only labeled datasets will be used so as to not give the proposed method an unfair advantage in terms of data quantity/quality.
+
+Reading Material:
 https://arxiv.org/abs/1708.07860
 https://arxiv.org/abs/1703.03400
 https://arxiv.org/abs/2202.01017

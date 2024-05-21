@@ -3,9 +3,24 @@ import torch.nn as nn
 
 
 # TODO:
-#  (eventually) create ResNet based models
-#  (eventually) create ViT based models
-#  (eventually) create MoE based models
+#  (now) create ResNet based models https://arxiv.org/abs/1512.03385
+#  (at some point) refactor the class names to reflect the encoder, predictor, projector archetypes
+#  (eventually) create ViT based models https://arxiv.org/abs/2403.18361
+#  (eventually) create MoE based models https://arxiv.org/abs/1611.01144
+
+class LinearProbe(nn.Module):
+    """
+    https://openreview.net/pdf?id=HJ4-rAVtl#:~:text=Our%20method%20uses%20linear%20classifiers,are%20generally%20added%20after%20training.
+    """
+
+    def __init__(self, embed_dim, output_dim, device="cpu", *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.probe = nn.Linear(embed_dim, output_dim, device=device)
+
+    def forward(self, embed_data):
+        output = self.probe(embed_data)
+        return output
+
 
 class SimpleConvEncode(nn.Module):
     """
@@ -232,3 +247,100 @@ class Cifar10Decoder(nn.Module):
         out = self.group4(out)
 
         return out
+
+
+class Resnet50Encoder(nn.Module):
+    """
+    https://arxiv.org/abs/1512.03385
+    """
+    def __init__(self, embed_dim, activation, device='cpu', *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        def create_residule_block(in_feat, out_feat, stride):
+            layer = nn.Sequential(nn.Conv2d(in_feat, out_feat // 4, (1, 1), device=device),
+                                  nn.BatchNorm2d(out_feat // 4, device=device),
+                                  nn.ReLU(),
+                                  nn.Conv2d(out_feat // 4, out_feat // 4, (3, 3), padding=(1, 1), stride=stride, device=device),
+                                  nn.BatchNorm2d(out_feat // 4, device=device),
+                                  nn.ReLU(),
+                                  nn.Conv2d(out_feat // 4, out_feat, (1, 1), device=device),
+                                  nn.BatchNorm2d(out_feat, device=device))
+            return layer
+
+        self.layer1 = nn.Conv2d(3, 64, (7, 7), stride=(2, 2), padding=3)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.maxpool1 = nn.MaxPool2d((3, 3), stride=2)
+
+        self.layer2_1 = create_residule_block(64, 256, 1)
+        self.layer2_2 = create_residule_block(256, 256, 1)
+        self.layer2_3 = create_residule_block(256, 256, 1)
+
+        self.layer3_1 = create_residule_block(256, 512, 2)
+        self.projection_shortcut_1 = nn.Conv2d(256, 512, (1, 1), stride=(2, 2), device=device)
+        self.layer3_2 = create_residule_block(512, 512, 1)
+        self.layer3_3 = create_residule_block(512, 512, 1)
+        self.layer3_4 = create_residule_block(512, 512, 1)
+
+        self.layer4_1 = create_residule_block(512, 1024, 2)
+        self.projection_shortcut_2 = nn.Conv2d(512, 1024, (1, 1), stride=(2, 2), device=device)
+        self.layer4_2 = create_residule_block(1024, 1024, 1)
+        self.layer4_3 = create_residule_block(1024, 1024, 1)
+        self.layer4_4 = create_residule_block(1024, 1024, 1)
+        self.layer4_5 = create_residule_block(1024, 1024, 1)
+        self.layer4_6 = create_residule_block(1024, 1024, 1)
+
+        self.layer5_1 = create_residule_block(1024, 2048, 2)
+        self.projection_shortcut_3 = nn.Conv2d(1024, 2048, (1, 1), stride=(2, 2), device=device)
+        self.layer5_2 = create_residule_block(2048, 2048, 1)
+        self.layer5_3 = create_residule_block(2048, 2048, 1)
+
+        self.embedding = nn.Linear(2048, embed_dim, device=device)
+
+        self.activation = activation
+
+    def forward(self, input_data):
+        result = self.layer1(input_data)
+        result = self.bn1(result)
+        result = self.activation(result)
+
+        result = self.layer2_1(result) + result
+        result = self.activation(result)
+        result = self.layer2_2(result) + result
+        result = self.activation(result)
+        result = self.layer2_3(result) + result
+        result = self.activation(result)
+
+        result = self.layer3_1(result) + self.projection_shortcut_1(result)
+        result = self.activation(result)
+        result = self.layer3_2(result) + result
+        result = self.activation(result)
+        result = self.layer3_3(result) + result
+        result = self.activation(result)
+        result = self.layer3_4(result) + result
+        result = self.activation(result)
+
+        result = self.layer4_1(result) + self.projection_shortcut_2(result)
+        result = self.activation(result)
+        result = self.layer4_2(result) + result
+        result = self.activation(result)
+        result = self.layer4_3(result) + result
+        result = self.activation(result)
+        result = self.layer4_4(result) + result
+        result = self.activation(result)
+        result = self.layer4_5(result) + result
+        result = self.activation(result)
+        result = self.layer4_6(result) + result
+        result = self.activation(result)
+
+        result = self.layer5_1(result) + self.projection_shortcut_3(result)
+        result = self.activation(result)
+        result = self.layer5_2(result) + result
+        result = self.activation(result)
+        result = self.layer5_3(result) + result
+        result = self.activation(result)
+
+        result = torch.mean(result, dim=(2, 3))
+
+        result = self.embedding(result)
+
+        return result

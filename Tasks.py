@@ -5,9 +5,14 @@ from skimage.color import rgb2lab, lab2rgb
 import DataAugments as da
 
 # TODO:
-#  (eventually) recreate less naive multi-task tasks
+#  (now) object detection
+#  (then) image segmentation
+#  (then) less naive multi-task task
+#  (eventually) rl task potentially https://arxiv.org/pdf/2301.04104.pdf
+#               with each component actor, critic, and world model built as a different task
 
 # Self Supervised Tasks ----------------------------------------------
+# https://arxiv.org/abs/2305.13689 a survey on the topic
 
 
 class Rotation(nn.Module):
@@ -39,7 +44,7 @@ class Rotation(nn.Module):
 
         rotated, self.labels = da.rotate(input_data)
 
-        rotated = torch.tensor(rotated, dtype=torch.float, device=self.device, requires_grad=True)
+        rotated = torch.tensor(rotated / 255, dtype=torch.float, device=self.device, requires_grad=True)
         self.labels = torch.as_tensor(self.labels, dtype=torch.long, device=self.device)
 
         return rotated
@@ -119,7 +124,11 @@ class Colorization(nn.Module):
         l_data = lab_data[:, 0, :, :].unsqueeze(1)
         self.labels = lab_data[:, 1:, :, :]
 
-        return self.harmonization(l_data)
+        harmonized_data = self.harmonization(l_data)
+        # pretreated_data from all talks should fall in the range of 0 - 1
+        harmonized_data = torch.nn.functional.sigmoid(harmonized_data)
+
+        return harmonized_data
 
     def generate_loss(self, embedded_data, clear_labels=True):
         """
@@ -219,11 +228,11 @@ class Contrastive(nn.Module):
         # but cutout shows good performance so maybe use the masking augmentation
         # potentially ideal augment order hflip, crop, color_distort, blur, mask
 
-        aug_data_1 = input_data.copy()  # I've seen drastically worse results when I / 255
+        aug_data_1 = input_data.copy() / 255
         for augment in self.augments:  # I was expecting the data to stay as a np.array, but it doesn't
             aug_data_1, scrap_info = augment(aug_data_1)
 
-        aug_data_2 = input_data.copy()
+        aug_data_2 = input_data.copy() / 255
         for augment in self.augments:
             aug_data_2, scrap_info = augment(aug_data_2)
 
@@ -340,9 +349,11 @@ class MaskedAutoEncoding(nn.Module):
         combo = torch.concatenate((torch.tensor(masked_image, dtype=torch.float, device=self.device),
                                    self.labels[0]), dim=1).requires_grad_(True)
 
-        pretreated = self.harmonization(combo)
+        harmonized_data = self.harmonization(combo)
+        # pretreated_data from all talks should fall in the range of 0 - 1
+        harmonized_data = torch.nn.functional.sigmoid(harmonized_data)
 
-        return pretreated
+        return harmonized_data
 
     def generate_loss(self, embedded_data, clear_labels=True):
         """
@@ -471,7 +482,7 @@ class Classification(nn.Module):
         :param kwargs:
         """
         super().__init__(*args, **kwargs)
-        self.name = name + "Classification"
+        self.name = name + " Classification"
         self.device = device
 
         self.num_classes = classes
@@ -522,12 +533,50 @@ class Classification(nn.Module):
         return loss
 
 
-# Multi-Task Tasks ----------------------------------------------------
+class YoloObjectDetection(nn.Module):
+    """
+    https://arxiv.org/pdf/1506.02640 yolo the original
+    https://arxiv.org/pdf/2304.00501 yolo version 1-8 review
+    """
+    def __init__(self, embed_dim, task_head, s, b, c, name, device="cpu", *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.name = name + " Yolo OD"
+        self.device = device
+        self.num_classes = c
+        self.num_segments = s
+        self.num_boxes_per_segment = b
 
+        self.task_head = task_head(embed_dim, s*s(b*5 + c), device)  # SxSx(BoxNum * 5 + ClassNum) tensor output
+
+    def pretreat(self, input_data):
+        """
+
+        :param input_data:
+        :return:
+        """
+        # For augmentations, the authors used random scaling and translations of at most 20% of the input image size,
+        # as well as random exposure and saturation with an upper-end factor of 1.5 in the HSV color space.
+        return torch.tensor(input_data, dtype=torch.float, device=self.device, requires_grad=True) / 255
+
+    def generate_loss(self, embed_data, labels):
+        pass
+
+    def check_performance(self, input_data, labels, backbone):
+        # mean average precision mAP and intersection over union IoU
+        # and Non-Maximum Suppression (NMS) following the output of the model to supress duplicates
+        pass
+
+    def forward(self, input_data, labels, backbone):
+        pass
+
+
+# Multi-Task Tasks ----------------------------------------------------
+# https://arxiv.org/pdf/2009.09796 a survey on the topic
 
 class AveragedLossMultiTask(nn.Module):
     """
     runs each task then uses an unweighted average of the losses of the set as the final loss
+    a naive approach to be used as a baseline to be improved upon
     """
 
     def __init__(self, tasks, device, *args, **kwargs):
@@ -610,3 +659,114 @@ class AveragedLossMultiTask(nn.Module):
             averaged_task_loss = 0
 
         return averaged_task_loss
+
+
+class LossBalancedMultiTask(nn.Module):
+    """
+    https://ojs.aaai.org/index.php/AAAI/article/view/5125
+    """
+    def __init__(self, tasks, device, *args, **kwargs):
+        """
+
+        :param tasks: a list of tasks
+        :param device:
+        """
+        super().__init__(*args, **kwargs)
+        self.name = ""
+        for task in tasks:
+            self.name += task.name + "+"
+        self.tasks = tasks
+        self.device = device
+
+        self.batch_shapes = []
+
+        self.params = []
+        for task in self.tasks:
+            self.params += list(task.parameters())
+
+        self.init_task_loss = None
+        self.alpha = 0.5  # show to be better in paper, but potentially a number to play with
+
+    def pretreat(self, input_data):
+        """
+
+        :param input_data:
+        :return:
+        """
+        batch = [task.pretreat(input_data) for task in self.tasks]
+        self.batch_shapes = [treated.shape[0] for treated in batch]
+        batch = torch.concatenate(batch, dim=0)
+        return batch
+
+    # todo fix maybe
+    def generate_loss(self, embedded_data, labels=None, clear_labels=True):
+        """
+
+        :param embedded_data:
+        :param labels:
+        :param clear_labels:
+        :return:
+        """
+        raise NotImplementedError
+
+    def check_performance(self, input_data, backbone):
+        """
+
+        :param input_data:
+        :param backbone:
+        :return:
+        """
+        return 0
+
+    # todo test it
+    def forward(self, input_data, backbone):
+        losses = []
+        for task in self.tasks:
+            losses.append(task.forward(input_data, backbone))
+
+        if self.init_task_loss is None:
+            self.init_task_loss = torch.Tensor([loss.item() for loss in losses])
+
+        if len(losses) > 1:
+            losses = torch.stack(losses)
+            losses = losses / self.init_task_loss
+            losses = torch.pow(losses, self.alpha)
+            averaged_task_loss = torch.mean(losses)
+        elif len(losses) == 1:
+            averaged_task_loss = torch.mean(losses[0])
+        else:
+            print("huh")
+            averaged_task_loss = 0
+
+        return averaged_task_loss
+
+
+class AdvancedMultiTask(nn.Module):
+    """
+    https://arxiv.org/pdf/2009.09796.pdf
+    - survey of multi task learning
+    https://arxiv.org/pdf/1708.07860.pdf
+    - not a great option because their method relies on using resnet architecture
+    - they do provide a hint about using RMSProp to deal with different scales of task losses
+    https://arxiv.org/pdf/2202.01017.pdf
+    - treat task gradients as a bargaining game
+    - major upside of reaching pareto optimal solutions
+    - major downside is requiring calculation of backbone gradients for each individual task for each update step
+    -   also eliminating the use of torch optimizers
+    https://arxiv.org/abs/1810.12193
+    - dynamic weighting that decreases weight when learning more quickly on a task
+    -   (to be compared to loss balanced multi task)
+    https://arxiv.org/abs/2306.03792
+    - reaches pareto optimal solutions
+    - a dynamic weighting method that decreases task losses in a balanced way using O(1) space and time
+    -
+    """
+    def __init__(self, tasks, device, *args, **kwargs):
+        """
+
+        :param tasks:
+        :param device:
+        :param args:
+        :param kwargs:
+        """
+        super().__init__(*args, **kwargs)

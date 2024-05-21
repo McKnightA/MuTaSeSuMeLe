@@ -1,3 +1,4 @@
+import wandb
 import torch
 import Datasets
 import Tasks
@@ -5,30 +6,54 @@ import BackBoneModel as bbm
 import MetaOptimizer as mo
 import Tests
 
+"""
+Hypothesis: if a model is trained with MAML and multi self supervised tasks are used as the inner loop tasks,
+             and the desired task is used as the outerloop, then the model will achieve better results in fewer
+             epochs than a model that is pretrained on imagenet classification and fine tuned or linearly probed on the desired task
+"""
 
-# todo:
-#  (now) it breaks with data of a different image size.
-#        Is this an issue with the model architecture? Yes.
-#        Solution: make image size invariant model or resize datasets to match cifar10
-#  (next) adjust all tests to accommodate general datasets
-#  (with purchase of compute) test multi task training over long times on varying datasets
-#  (next) MAML breaks for rotation and contrastive, so fix it
-#  (after all tests are operational) integrate wandb to track test results
-#  (eventually) there's code repetition for running each type of test with a taguchi array
+# todo: implements
+#  (now) create hypothesis test
+#  (next) adjust MAML in a manner conducive to testing the hypothesis
+#  (then) explore other datasets -- https://huggingface.co/datasets/detection-datasets/coco
+#                                   requires a new task for object detection   D task
+#  (then) create a resnet projector
+#                                -- also look at Pascal VOC, ADE20K for segmentation   S task
+#  (then) integrate wandb and save loss values not just plots
+#  (then) explore other SSL methods -- information maxing looks really interesting https://arxiv.org/abs/2105.04906
+#                                   -- maybe a clustering method https://arxiv.org/pdf/2006.09882
+#  (then) make next architecture
+#  (with purchase of compute) test over long times -- ~400 SSL epochs is common though some only use 100
+#  (eventually) there's code repetition for running each different type of test with a taguchi array
 
+# todo: systems tests
+#  (then) debug improved multi task results
+#  (then) debug ResNet50 architecture on colab
+#  (then) debug imagenet data and label processing on colab
 
-dataset = Datasets.Food101()
+# todo: research tests
+#  (now) collect early meta learning results
 
+dataset = Datasets.Cifar10()
+testset = Datasets.Cifar10()
 
-embedding_size = 1024  # hyper parameters
-batch_size = 4
-pre_epochs = 3
-inner_loops = 5
-fine_epochs = 2
+# hyper parameters
+embedding_size = 1024
+batch_size = 64
+pre_epochs = 10
+inner_loops = 1
+fine_epochs = 10
 device = 'cpu'
 
-# p=4, l=2  [0, 0, 0, 0],  # control = frozen random weights and pretraining classification
-#
+config = {"embedding size": embedding_size,
+          "batch size": batch_size,
+          "pretrain epochs": pre_epochs,
+          "finetune epochs": fine_epochs,
+          "device": device,
+          "pretrain dataset": dataset.name,
+          "finetune dataset": testset.name}
+
+# p=4, l=2  [0, 0, 0, 0],  # control = frozen random weights
 taguchi_array = [[0, 0, 0, 1],
                  [0, 1, 1, 0],
                  [0, 1, 1, 1],
@@ -43,7 +68,7 @@ def spawn_tasklist():
             Tasks.Colorization(embedding_size, bbm.Cifar10Decoder, device),
             Tasks.Contrastive(embedding_size, bbm.Cifar10Classifier, device),
             Tasks.MaskedAutoEncoding(embedding_size, bbm.Cifar10Decoder, device),
-            Tasks.Classification(embedding_size, bbm.Cifar10Classifier, 18, "food101", device)]
+            Tasks.Classification(embedding_size, bbm.Cifar10Classifier, testset.class_num, testset.name, device)]
 
 
 def spawn_backbone():
@@ -53,16 +78,17 @@ def spawn_backbone():
 backbone = spawn_backbone()
 tasks = spawn_tasklist()
 
-eval_task = Tasks.Classification(embedding_size, bbm.Cifar10Classifier, 18, "food101", device)
-# perhaps dataset should hold the number of classes to avoid magic number 18
+train_task = Tasks.Classification(embedding_size, bbm.Cifar10Classifier, dataset.class_num, dataset.name, device)
 
-meta_task = Tasks.Cifar10Classification(embedding_size, bbm.Cifar10Classifier, device)
+eval_task = Tasks.Classification(embedding_size, bbm.Cifar10Classifier, testset.class_num, testset.name, device)
 
-meta_optim = mo.MAML([tasks[0]], meta_task, backbone, 0.001, torch.optim.Adam)
+meta_task = Tasks.Classification(embedding_size, bbm.Cifar10Classifier, testset.class_num, testset.name, device)
+
+meta_optim = mo.MAML([tasks[0], tasks[2]], meta_task, backbone, 0.001, torch.optim.Adam)
 
 # -----------------------------------------------------------------------------------
 
-# Tests.test_task(dataset, testset, backbone, tasks[2], pre_epochs, batch_size)
+# Tests.test_task(dataset, dataset, backbone, tasks[4], pre_epochs, batch_size, baseline=False)
 
 """
 for trial in taguchi_array:
@@ -87,7 +113,7 @@ for trial in taguchi_array:
     Tests.test_task(dataset, testset, backbone, multi_task, pre_epochs, batch_size, baseline)
 """
 
-Tests.test_finetune(dataset, dataset, dataset, backbone, tasks[-1], eval_task, pre_epochs, fine_epochs, batch_size)
+# Tests.test_finetune(dataset, testset, testset, backbone, train_task, eval_task, pre_epochs, fine_epochs, batch_size)
 
 """
 for trial in taguchi_array:
@@ -108,13 +134,13 @@ for trial in taguchi_array:
         baseline = False
 
     multi_task = Tasks.AveragedLossMultiTask(trial_tasks, device)
-    Tests.test_finetune(dataset, dataset, dataset, backbone, multi_task, tasks[-1],
-                        pre_epochs, fine_epochs, batch_size, baseline)
+    Tests.test_finetune(dataset, testset, testset, backbone, multi_task, tasks[-1],
+                        pre_epochs, fine_epochs, batch_size)
 """
 
-# Tests.test_maml(dataset, dataset, testset,
-#                 backbone, meta_optim, eval_task,
-#                 pre_epochs, inner_loops, fine_epochs, batch_size)
+Tests.test_maml_pretraining(dataset, testset, backbone,
+                            meta_optim, eval_task, pre_epochs,
+                            inner_loops, fine_epochs, batch_size)
 
 """
 for trial in taguchi_array:

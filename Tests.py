@@ -3,9 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-# TODO:
-#  (next) update test_task and test_maml
-#  (then) fix multi_task_test_suite
+# TODO: finish hypothesis test
 
 def run_data_loop(dataset, task, backbone, optimizer, batch_size, training=False):
     losses = []
@@ -56,66 +54,35 @@ def test_task(training_set, eval_set, common_backbone, task, training_loops, bat
     # schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optim, training_loops)
 
     losses = []
-    performances = []
+    # performances = []
     eval_losses = []
-    eval_performances = []
+    # eval_performances = []
 
     for i in range(training_loops):
         print("epoch: ", i + 1)
 
-        batch_losses = []
-        batch_performance = []
-        for batch in training_set.iter(batch_size):
+        average_loss = np.average(run_data_loop(training_set, task, common_backbone, optim, batch_size, True))
+        losses.append(average_loss)
 
-            data_batch = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
-                (0, 3, 1, 2))
-            labels = torch.as_tensor(batch['label'], dtype=torch.long)
-
-            try:
-                loss = task.forward(data_batch, common_backbone)
-                batch_performance.append(task.check_performance(data_batch, common_backbone))
-            except TypeError:
-                loss = task.foward(data_batch, labels, common_backbone)
-                batch_performance.append(task.check_performance(data_batch, labels, common_backbone))
-
-            batch_losses.append(loss.item())
-
-            optim.zero_grad()  # backward pass the loss
-            loss.backward()
-            optim.step()
-        # schedule.step()
-
-        losses.append(np.mean(batch_losses))
-        performances.append(batch_performance[-2])
-
-        batch_eval_losses = []
-        batch_eval_performance = []
-        for batch in eval_set.iter(batch_size):
-
-            data_batch = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
-                (0, 3, 1, 2))
-            labels = torch.as_tensor(batch['label'], dtype=torch.long)
-
-            try:
-                loss = task.forward(data_batch, common_backbone)
-                batch_eval_performance.append(task.check_performance(data_batch, common_backbone))
-            except TypeError:
-                loss = task.forward(data_batch, labels, common_backbone)
-                batch_eval_performance.append(task.check_performance(data_batch, labels, common_backbone))
-
-            batch_eval_losses.append(loss.item())
-
-        eval_losses.append(np.mean(batch_eval_losses))
-        eval_performances.append(batch_eval_performance[-2])
+        average_loss = np.average(run_data_loop(eval_set, task, common_backbone, optim, batch_size, False))
+        eval_losses.append(average_loss)
 
     fig = plt.figure()
     plt.plot(losses, label="training")
     plt.plot(eval_losses, label="eval")
-    plt.title("{} loss".format(task.name))
+    plt.xlabel("epochs")
+    plt.ylabel("averaged loss")
     plt.legend()
-    plt.savefig("plots/{} loss".format(task.name))
 
-    try:
+    if baseline:
+        title = "{} baseline loss".format(task.name)
+    else:
+        title = "{} loss".format(task.name)
+
+    plt.title(title)
+    plt.savefig("plots/" + title)
+
+    """try:
         fig = plt.figure()
         plt.plot(performances, label="training")
         plt.plot(eval_performances, label="eval")
@@ -131,16 +98,15 @@ def test_task(training_set, eval_set, common_backbone, task, training_loops, bat
 
         plt.title("{} performance".format(task.name))
         plt.legend()
-        plt.savefig("plots/{} performance".format(task.name))
+        plt.savefig("plots/{} performance".format(task.name))"""
 
 
-def test_finetune(training_set, finetune_set, eval_set, common_backbone, pretrain_task, finetune_task,
+def test_finetune(training_set, finetune_set, common_backbone, pretrain_task, finetune_task,
                   pretrain_loops, finetune_loops, batch_size):
     """
-
+    finetuning according to https://snorkel.ai/boost-foundation-model-results-with-linear-probing-fine-tuning/
     :param training_set:
     :param finetune_set:
-    :param eval_set:
     :param common_backbone:
     :param pretrain_task:
     :param finetune_task:
@@ -157,16 +123,21 @@ def test_finetune(training_set, finetune_set, eval_set, common_backbone, pretrai
     optim = torch.optim.Adam(params)
 
     pretrain_losses = []
+    pretrain_eval_losses = []
     for i in range(pretrain_loops):
         print("epoch: ", i + 1)
 
         average_loss = np.average(run_data_loop(training_set, pretrain_task, common_backbone, optim, batch_size, True))
         pretrain_losses.append(average_loss)
 
+        average_loss = np.average(run_data_loop(training_set, pretrain_task, common_backbone, optim, batch_size, False))
+        pretrain_eval_losses.append(average_loss)
+
     results.append(pretrain_losses)
+    results.append(pretrain_eval_losses)
 
     # fine-tuning ------------------------------------------------------------------------------------------------------
-    fine_optim = torch.optim.Adam(list(finetune_task.parameters()))
+    fine_optim = torch.optim.Adam(list(finetune_task.parameters()) + list(common_backbone.parameters()))
 
     fine_losses = []
     fine_eval_losses = []
@@ -174,10 +145,12 @@ def test_finetune(training_set, finetune_set, eval_set, common_backbone, pretrai
     for i in range(finetune_loops):
         print("fine-tuning epoch: ", i + 1)
 
-        averaged_loss = np.mean(run_data_loop(finetune_set, finetune_task, common_backbone, fine_optim, batch_size, True))
+        averaged_loss = np.mean(run_data_loop(finetune_set, finetune_task, common_backbone,
+                                              fine_optim, batch_size, True))
         fine_losses.append(averaged_loss)
 
-        averaged_loss = np.mean(run_data_loop(eval_set, finetune_task, common_backbone, fine_optim, batch_size, False))
+        averaged_loss = np.mean(run_data_loop(finetune_set, finetune_task, common_backbone,
+                                              fine_optim, batch_size, False))
         fine_eval_losses.append(averaged_loss)
 
     results.append(fine_losses)
@@ -185,30 +158,111 @@ def test_finetune(training_set, finetune_set, eval_set, common_backbone, pretrai
 
     # saving results ---------------------------------------------------------------------------------------------------
     fig = plt.figure()
-    plt.plot(pretrain_losses)
-    plt.title("{} pretrain training loss".format(pretrain_task.name))
+    plt.plot(pretrain_losses, label="training")
+    plt.plot(pretrain_eval_losses, label="eval")
     plt.xlabel("epochs")
     plt.ylabel("averaged loss")
+    plt.legend()
+    plt.title("{} pretrain training loss".format(pretrain_task.name))
     plt.savefig("plots/{} pretrain training loss.png".format(pretrain_task.name))
 
     fig = plt.figure()
-    plt.plot(fine_losses)
-    plt.plot(fine_eval_losses)
-    plt.title("{} pretraining with fine tuning on {}".format(pretrain_task.name, finetune_task.name))
+    plt.plot(fine_losses, label="training")
+    plt.plot(fine_eval_losses, label="eval")
     plt.xlabel("epochs")
     plt.ylabel("averaged loss")
+    plt.legend()
+    plt.title("{} pretrain _ {} finetune".format(pretrain_task.name, finetune_task.name))
     plt.savefig("plots/{} pretraining with fine tuning on {}.png".format(pretrain_task.name, finetune_task.name))
 
     return results
 
 
-def test_maml(training_set, finetune_set, eval_set, common_backbone, meta_optimizer, finetune_task,
-              pretrain_loops, inner_meta_loops, finetune_loops, batch_size, visualize=False):
+def test_linear_probe(training_set, probing_sets, common_backbone, pretrain_task, probing_tasks,
+                      pretrain_loops, finetune_loops, batch_size):
+    """
+
+    :param training_set:
+    :param probing_sets: a list of datasets for probing the feature extractor must match with the probe tasks
+    :param common_backbone:
+    :param pretrain_task:
+    :param probing_tasks: a list of tasks to probe the feature extractor (common backbone) with
+    :param pretrain_loops:
+    :param finetune_loops:
+    :param batch_size:
+    :return:
+    """
+
+    results = []
+
+    # pretraining ------------------------------------------------------------------------------------------------------
+    params = list(pretrain_task.parameters()) + list(common_backbone.parameters())
+
+    optim = torch.optim.Adam(params)
+
+    pretrain_losses = []
+    pretrain_eval_losses = []
+    for i in range(pretrain_loops):
+        print("epoch: ", i + 1)
+
+        average_loss = np.average(run_data_loop(training_set, pretrain_task, common_backbone, optim, batch_size, True))
+        pretrain_losses.append(average_loss)
+
+        average_loss = np.average(run_data_loop(training_set, pretrain_task, common_backbone, optim, batch_size, False))
+        pretrain_eval_losses.append(average_loss)
+
+    results.append(pretrain_losses)
+
+    # saving results ---------------------------------------------------------------------------------------------------
+    fig = plt.figure()
+    plt.plot(pretrain_losses, label="training")
+    plt.plot(pretrain_eval_losses, label="eval")
+    plt.xlabel("epochs")
+    plt.ylabel("averaged loss")
+    plt.legend()
+    plt.title("{} pretrain training loss".format(pretrain_task.name))
+    plt.savefig("plots/{} pretrain training loss.png".format(pretrain_task.name))
+
+    # probing ----------------------------------------------------------------------------------------------------------
+    for probe_set, probe_task in zip(probing_sets, probing_tasks):
+        fine_optim = torch.optim.Adam(list(probe_task.parameters()))
+
+        probe_losses = []
+        probe_eval_losses = []
+
+        for i in range(finetune_loops):
+            print("fine-tuning epoch: ", i + 1)
+
+            averaged_loss = np.mean(run_data_loop(probe_set, probe_task, common_backbone,
+                                                  fine_optim, batch_size, True))
+            probe_losses.append(averaged_loss)
+
+            averaged_loss = np.mean(run_data_loop(probe_set, probe_task, common_backbone,
+                                                  fine_optim, batch_size, False))
+            probe_eval_losses.append(averaged_loss)
+
+        results.append(probe_losses)
+        results.append(probe_eval_losses)
+
+        # saving results -----------------------------------------------------------------------------------------------
+        fig = plt.figure()
+        plt.plot(probe_losses, label="training")
+        plt.plot(probe_eval_losses, label="eval")
+        plt.xlabel("epochs")
+        plt.ylabel("averaged loss")
+        plt.legend()
+        plt.title("{} pretraining - probing {}".format(pretrain_task.name, probe_task.name))
+        plt.savefig("plots/{} pretraining - probing {}.png".format(pretrain_task.name, probe_task.name))
+
+    return results
+
+
+def test_maml_pretraining(training_set, finetune_set, common_backbone, meta_optimizer, finetune_task,
+                          pretrain_loops, inner_meta_loops, finetune_loops, batch_size):
     """
 
     :param training_set:
     :param finetune_set:
-    :param eval_set:
     :param common_backbone:
     :param meta_optimizer:
     :param finetune_task:
@@ -216,7 +270,6 @@ def test_maml(training_set, finetune_set, eval_set, common_backbone, meta_optimi
     :param inner_meta_loops:
     :param finetune_loops:
     :param batch_size:
-    :param visualize:
     :return:
     """
 
@@ -226,32 +279,31 @@ def test_maml(training_set, finetune_set, eval_set, common_backbone, meta_optimi
     for j in range(pretrain_loops):  # pretraining loop
         print("epoch: ", j + 1)
 
-        for batch in training_set.iter(batch_size):
-            data_batch = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0)
-            labels = torch.as_tensor(batch['label'], dtype=torch.long)
+        batch_losses = []
+        batch_eval_losses = []
+        for batch in training_set.trainset.iter(batch_size):
+            data, labels = training_set.get_data_n_labels(batch)
 
             # forward pass the data
-            loss = meta_optimizer.outer_loop((data_batch.transpose((0, 3, 1, 2)), labels), inner_meta_loops)
+            loss = meta_optimizer.outer_loop((data, labels), inner_meta_loops)
 
-            pretrain_losses.append(loss.item())
+            batch_losses.append(loss.item())
 
-        # this may not work if the meta_optim.test_task isn't the same as finetune_task
-        for batch in eval_set.iter(batch_size):
-            data_batch = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
-                (0, 3, 1, 2))
-            labels = torch.as_tensor(batch['label'], dtype=torch.long)
+        for batch in training_set.testset.iter(batch_size):
+            data, labels = training_set.get_data_n_labels(batch)
 
-            treated = meta_optimizer.test_task.pretreat(data_batch)  # forward pass the data
-            embedded = common_backbone.forward(treated)
             try:
-                loss = meta_optimizer.test_task.generate_loss(embedded)
+                loss = meta_optimizer.test_task.forward(data, common_backbone)
             except TypeError:
-                loss = meta_optimizer.test_task.generate_loss(embedded, labels)
+                loss = meta_optimizer.test_task.forward(data, labels, common_backbone)
 
-            pretrain_eval_losses.append(loss.item())
+            batch_eval_losses.append(loss.item())
+
+        pretrain_losses.append(np.mean(batch_losses))
+        pretrain_eval_losses.append(np.mean(batch_eval_losses))
 
     # fine-tune --------------------------------------------------------------------------------------------------------
-    fine_optim = torch.optim.Adam(list(finetune_task.task_head.parameters()))
+    fine_optim = torch.optim.Adam(list(finetune_task.parameters()))
 
     fine_losses = []
     fine_eval_losses = []
@@ -259,54 +311,89 @@ def test_maml(training_set, finetune_set, eval_set, common_backbone, meta_optimi
     for i in range(finetune_loops):  # fine-tuning loop
         print("fine tuning epoch: ", i + 1)
 
-        for batch in finetune_set.iter(batch_size):
+        averaged_loss = np.mean(run_data_loop(finetune_set, finetune_task, common_backbone,
+                                              fine_optim, batch_size, True))
+        fine_losses.append(averaged_loss)
 
-            data_batch = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
-                (0, 3, 1, 2))
-            labels = torch.as_tensor(batch['label'], dtype=torch.long)
-
-            treated = finetune_task.pretreat(data_batch)
-            embedded = common_backbone.forward(treated)  # forward pass the data
-            try:
-                loss = finetune_task.generate_loss(embedded)
-            except TypeError:
-                loss = finetune_task.generate_loss(embedded, labels)
-            fine_losses.append(loss.item())
-
-            fine_optim.zero_grad()  # backward pass the loss
-            loss.backward()
-            fine_optim.step()
-
-        for batch in eval_set.iter(batch_size):
-            data_batch = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
-                (0, 3, 1, 2))
-            labels = torch.as_tensor(batch['label'], dtype=torch.long)
-
-            treated = finetune_task.pretreat(data_batch)
-            embedded = common_backbone.forward(treated)  # forward pass the data
-            try:
-                loss = finetune_task.generate_loss(embedded)
-            except TypeError:
-                loss = finetune_task.generate_loss(embedded, labels)
-            fine_eval_losses.append(loss.item())
+        averaged_loss = np.mean(run_data_loop(finetune_set, finetune_task, common_backbone,
+                                              fine_optim, batch_size, False))
+        fine_eval_losses.append(averaged_loss)
 
     # visualization ----------------------------------------------------------------------------------------------------
-    if visualize:
-        fig1 = plt.figure()
-        plt.plot(pretrain_losses)
-        plt.plot(pretrain_eval_losses)
-        task_name = ""
-        for task in meta_optimizer.tasks:
-            task_name += task.name + " "
-        plt.title("{} training : {} meta".format(task_name, meta_optimizer.test_task.name))
-        plt.savefig("plots/{} training : {} meta.png".format(task_name, meta_optimizer.test_task.name))
+    fig1 = plt.figure()
+    plt.plot(pretrain_losses, label="meta training")
+    plt.plot(pretrain_eval_losses, label="meta eval")
+    plt.legend()
+    task_name = ""
+    for task in meta_optimizer.tasks:
+        task_name += task.name + " "
+    plt.title("{} training | {} meta".format(task_name, meta_optimizer.test_task.name))
+    plt.savefig("plots/{}_training-{}_meta.png".format(task_name, meta_optimizer.test_task.name))
 
-        fig2 = plt.figure()
-        plt.plot(fine_losses)
-        plt.plot(fine_eval_losses)
-        plt.title("{} training : {} meta | pretrain :: {} | finetune".format(task_name,
-                                                                             meta_optimizer.test_task.name,
-                                                                             finetune_task.name))
-        plt.savefig("plots/{} training : {} meta | pretrain :: {} | finetune.png".format(task_name,
-                                                                                         meta_optimizer.test_task.name,
-                                                                                         finetune_task.name))
+    fig2 = plt.figure()
+    plt.plot(fine_losses, label="training")
+    plt.plot(fine_eval_losses, label="eval")
+    plt.legend()
+    plt.title("{} training | {} meta pretrain || {} finetune".format(task_name,
+                                                                     meta_optimizer.test_task.name,
+                                                                     finetune_task.name))
+    plt.savefig("plots/{}_training-{}_meta---{}_finetune.png".format(task_name,
+                                                                     meta_optimizer.test_task.name,
+                                                                     finetune_task.name))
+
+    results = [pretrain_losses, pretrain_eval_losses, fine_losses, fine_eval_losses]
+
+    return results
+
+
+def test_hypothesis(training_set, eval_set, common_backbone, meta_optimizer, eval_task,
+                    eval_loops, inner_meta_loops, batch_size):
+    """
+
+    :param training_set:
+    :param eval_set:
+    :param common_backbone:
+    :param meta_optimizer:
+    :param eval_task:
+    :param eval_loops:
+    :param inner_meta_loops:
+    :param batch_size:
+    :return:
+    """
+
+    pretrain_losses = []
+    pretrain_eval_losses = []
+
+    for j in range(eval_loops):  # pretraining loop
+        print("epoch: ", j + 1)
+
+        for batch in training_set.trainset.iter(batch_size):
+            data, labels = training_set.get_data_n_labels(batch)
+
+            # forward pass the data
+            loss = meta_optimizer.outer_loop((data, labels), inner_meta_loops)
+
+            pretrain_losses.append(loss.item())
+
+        for batch in training_set.testset.iter(batch_size):
+            data, labels = training_set.get_data_n_labels(batch)
+
+            try:
+                loss = meta_optimizer.test_task.forward(data, common_backbone)
+            except TypeError:
+                loss = meta_optimizer.test_task.forward(data, labels, common_backbone)
+
+            pretrain_eval_losses.append(loss.item())
+
+    # visualization ----------------------------------------------------------------------------------------------------
+    fig1 = plt.figure()
+    plt.plot(pretrain_losses)
+    plt.plot(pretrain_eval_losses)
+    task_name = ""
+    for task in meta_optimizer.tasks:
+        task_name += task.name + " "
+    plt.title("{} training | {} meta".format(task_name, meta_optimizer.test_task.name))
+    plt.savefig("plots/{}_training-{}_meta.png".format(task_name, meta_optimizer.test_task.name))
+
+    results = {}
+    return results

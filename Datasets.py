@@ -3,84 +3,105 @@ import numpy as np
 import torch
 
 
+def scale_down_image_batch(images, new_size):
+    for img in images:
+        img.thumbnail((new_size, new_size))
+    data = [np.array(img) for img in images]
+    for i, datum in enumerate(data):
+        if len(datum.shape) < 3:  # some images are black and white
+            # raise ValueError("dataset is broken")
+            data[i] = np.expand_dims(datum, -1)
+
+    return data
+
+
+def pad_jagged_image_batch(images, padded_size):
+    non_jagged_data = np.zeros((len(images), padded_size[0], padded_size[1], 3))  # 3 for RGB
+
+    for i, datum in enumerate(images):
+        image_w_pad_size = padded_size[0] - datum.shape[0]
+        image_h_pad_size = padded_size[1] - datum.shape[1]
+        non_jagged_data[i, image_w_pad_size // 2: datum.shape[0] + image_w_pad_size // 2,
+                        image_h_pad_size // 2:datum.shape[1] + image_h_pad_size // 2, :] += datum
+
+    return non_jagged_data
+
+
 class Cifar10:
     def __init__(self):
-        self.trainset = load_dataset("cifar10", split="train", streaming=True)
-        self.testset = load_dataset("cifar10", split="test", streaming=True)
+        self.trainset = load_dataset("D:\\cifar10", split="train", streaming=True)
+        self.testset = load_dataset("D:\\cifar10", split="test", streaming=True)
+        self.name = "Cifar10"
+        self.class_num = 10
 
     def get_data_n_labels(self, batch):
         data = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
             (0, 3, 1, 2))
-        print(data.shape)
         labels = torch.as_tensor(batch['label'], dtype=torch.long)
+
         return data, labels
 
 
 class Cifar100:
     def __init__(self):
-        self.trainset = load_dataset("cifar100", split="train", streaming=True)
-        self.testset = load_dataset("cifar100", split="test", streaming=True)
+        self.trainset = load_dataset("D:\\cifar100", split="train", streaming=True)
+        self.testset = load_dataset("D:\\cifar100", split="test", streaming=True)
+        self.name = "Cifar100"
+        self.class_num = 100
 
     def get_data_n_labels(self, batch):
         data = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
             (0, 3, 1, 2))
         labels = torch.as_tensor(batch['fine_label'], dtype=torch.long)
+
         return data, labels
 
 
 class Food101:
     def __init__(self):
-        self.trainset = load_dataset("food101", split="train", streaming=True)
-        self.testset = load_dataset("food101", split="validation", streaming=True)
+        self.trainset = load_dataset("D:\\food101", split="train", streaming=True)
+        self.testset = load_dataset("D:\\food101", split="validation", streaming=True)
+        self.name = "Food101"
+        self.class_num = 101
 
     def get_data_n_labels(self, batch):
-        data = [np.array(img) for img in batch['image']]
-        width = 0
-        height = 0
-        for datum in data:  # need the max image height and width in order to make the array not jagged
-            if datum.shape[0] > width:  # probably 528
-                width = datum.shape[0]
-            if datum.shape[1] > height:  # probably 528
-                height = datum.shape[1]
+        # in order to match cifar image sizes
+        data = scale_down_image_batch(batch["image"], 32)
 
-        non_jagged_data = np.zeros((len(data), width, height, 3))  # 3 for RGB
-
-        for i, datum in enumerate(data):
-            non_jagged_data[i, :datum.shape[0], :datum.shape[1], :] += datum
-
-        data = non_jagged_data.transpose((0, 3, 1, 2))  # shape b, c, w, h
-        print(data.shape)
+        data = pad_jagged_image_batch(data, (32, 32)).transpose((0, 3, 1, 2))  # shape b, c, w, h
 
         labels = torch.as_tensor(batch['label'], dtype=torch.long)
 
         return data, labels
 
 
-class DeepPlantAGMC:
+class Beans:
     def __init__(self):
-        self.trainset = load_dataset("deep-plants/AGM", split="train[:80%]", streaming=True)  # breaks on the split
-        self.testset = load_dataset("deep-plants/AGM", split="train[80%:]", streaming=True)
-        self.labels = {"tu3": 0, "by": 1, "zx1": 2, "ida": 3, "idb": 4, "wh7": 5, "tu1": 6, "m1a": 7, "m1b": 8,
-                       "y2": 9, "y1": 10, "bx": 11, "rx3": 12, "bz": 13, "tu4": 14, "tu2": 15, "j1": 16, "zx3": 17}
+        self.trainset = load_dataset("D:\\beans", split="train", streaming=True)
+        self.testset = load_dataset("D:\\beans", split="validation", streaming=True)
+        self.name = "Beans"
+        self.class_num = 3
 
     def get_data_n_labels(self, batch):
-        data = np.concatenate([np.expand_dims(img, axis=0) for img in batch['image']], axis=0).transpose(
-            (0, 3, 1, 2))
+        data = [np.expand_dims(img, 0) for img in scale_down_image_batch(batch["image"], 32)]
+        data = np.concatenate(data, 0).transpose((0, 3, 1, 2))
 
-        string_labels = batch['crop_type']
-        labels = torch.as_tensor([self.labels[label] for label in string_labels], dtype=torch.long)
+        labels = torch.as_tensor(batch['labels'], dtype=torch.long)
         return data, labels
 
 
-class AmazonianFish:
+class Svhn:
     def __init__(self):
-        self.trainset = load_dataset("davanstrien/amazonian_fish_classifier_data", split="train[:80%]", streaming=True)
-        self.testset = load_dataset("davanstrien/amazonian_fish_classifier_data", split="train[80%:]", streaming=True)
+        self.trainset = load_dataset("D:\\svhn", "cropped_digits", split="train", streaming=True)
+        self.testset = load_dataset("D:\\svhn", "cropped_digits", split="train", streaming=True)
+        self.name = "SVHN"
+        self.class_num = 10
 
     def get_data_n_labels(self, batch):
         data = np.concatenate([np.expand_dims(img, axis=0) for img in batch['image']], axis=0).transpose(
             (0, 3, 1, 2))
         labels = torch.as_tensor(batch['label'], dtype=torch.long)
+
         return data, labels
 
 
@@ -88,9 +109,22 @@ class Imagenet1k:
     def __init__(self):
         self.trainset = load_dataset("imagenet-1k", split="train", streaming=True)
         self.testset = load_dataset("imagenet-1k", split="validation", streaming=True)
+        self.name = "Imagenet1k"
+        self.class_num = 1000
 
     def get_data_n_labels(self, batch):
-        data = np.concatenate([np.expand_dims(img, axis=0) for img in batch['img']], axis=0).transpose(
-            (0, 3, 1, 2))
-        labels = torch.as_tensor(batch['label'], dtype=torch.long)
-        return data, labels
+        pass
+
+
+class Coco:
+    """
+    https://huggingface.co/datasets/detection-datasets/coco
+    """
+    def __init__(self):
+        self.trainset = load_dataset("detection-datasets/coco", split="train", streaming=True)
+        self.testset = load_dataset("detection-dataset/coco", split="val", streaming=True)
+        self.name = "Coco"
+
+    def get_data_n_labels(self, batch):
+        pass
+

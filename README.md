@@ -2,7 +2,7 @@
 
 Some GPT generated motivations:
 
-Multi-task learning (MTL) is motivated by the idea that learning multiple related tasks simultaneously can improve generalization performance compared to learning each task independently. Here are some key motivations behind multi-task learning:
+Multi-task learning (MTL) is motivated by the idea that learning multiple related tasks simultaneously can improve generalization performance compared to learning each task independently. A survey of research on the topic can be found here https://arxiv.org/abs/2009.09796. Here are some key motivations behind multi-task learning:
 
 1. **Data Efficiency**: When related tasks have limited amounts of labeled data individually, jointly learning them can lead to more efficient utilization of available data. By sharing information across tasks, the model can learn more robust representations.
 
@@ -16,7 +16,7 @@ Multi-task learning (MTL) is motivated by the idea that learning multiple relate
 
 Overall, multi-task learning aims to leverage the relationships between tasks to enhance the learning process, improve generalization performance, and enable better utilization of available resources.
 
-Self-supervised learning (SSL) is motivated by the idea of leveraging unlabeled data to train models. Here are some key motivations behind self-supervised learning:
+Self-supervised learning (SSL) is motivated by the idea of leveraging unlabeled data to train models. A survey of research on the topic can be found here https://arxiv.org/abs/2305.13689. Here are some key motivations behind self-supervised learning:
 
 1. **Data Efficiency**: An abundance of unlabeled data is often available, while labeled data can be scarce and expensive to obtain. Self-supervised learning allows models to learn from this vast amount of unlabeled data, making it a more data-efficient approach compared to supervised learning.
 
